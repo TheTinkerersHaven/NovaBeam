@@ -78,7 +78,7 @@ class BeamController extends ChangeNotifier {
         await FilePicker.platform.pickFiles(type: FileType.any, withData: true);
     if (result == null || result.files.isEmpty) return;
     file = result.files.first;
-    fileBytes = file!.bytes ?? await file!.readAsBytes();
+    fileBytes = await _readFileBytes(file!);
     errorMessage = null;
     _log('Picked ${file!.name} (${file!.size} bytes)');
     notifyListeners();
@@ -294,7 +294,7 @@ class BeamController extends ChangeNotifier {
   Future<void> _sendFile(String endpointId) async {
     final f = file;
     if (f == null) return;
-    final bytes = fileBytes ?? await f.readAsBytes();
+    final bytes = fileBytes ?? await _readFileBytes(f);
     fileBytes = bytes;
     final digest = sha256.convert(bytes).toString();
     final manifest = TransferManifest(
@@ -335,6 +335,20 @@ class BeamController extends ChangeNotifier {
     final time = DateTime.now().toIso8601String().substring(11, 19);
     logLines.add('[$time] $line');
     if (logLines.length > 120) logLines.removeAt(0);
+  }
+
+  static Future<Uint8List> _readFileBytes(PlatformFile f) async {
+    final cached = f.bytes;
+    if (cached != null) return cached;
+    final stream = f.readStream;
+    if (stream != null) {
+      final builder = BytesBuilder(copy: false);
+      await for (final chunk in stream) {
+        builder.add(chunk);
+      }
+      return builder.takeBytes();
+    }
+    throw StateError('File bytes unavailable for ${f.name}');
   }
 
   static String _randomHex(int byteCount) {
