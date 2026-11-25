@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.ComponentName
 import android.nfc.NfcAdapter
 import android.nfc.Tag
-import android.nfc.cardemulation.AidGroup
 import android.nfc.cardemulation.CardEmulation
 import android.nfc.tech.IsoDep
 import io.flutter.embedding.engine.FlutterEngine
@@ -30,10 +29,11 @@ class NfcBeamPlugin(private val activity: Activity) :
         private const val METHOD_CHANNEL = "dev.tinkerershaven.novabeam/nfc"
         private const val EVENT_CHANNEL = "dev.tinkerershaven.novabeam/nfc_events"
 
-        // Custom AID: 0xF0 + ASCII "NovaBeam" (registered in res/xml/apduservice.xml)
-        val AID: ByteArray = byteArrayOf(
-            0xF0.toByte(), 0x4E, 0x6F, 0x76, 0x61, 0x42, 0x65, 0x61, 0x6D
-        )
+        // Custom AID: 0xF0 + ASCII "NovaBeam", registered at runtime via
+        // CardEmulation.registerAidsForService (hex string form).
+        const val AID_HEX = "F04E6F76614265616D"
+        val AID: ByteArray =
+            AID_HEX.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
 
         @Volatile
         private var pendingPayload: ByteArray? = null
@@ -84,7 +84,7 @@ class NfcBeamPlugin(private val activity: Activity) :
         CardEmulation.getInstance(adapter).registerAidsForService(
             ComponentName(activity, BeamHceService::class.java),
             CardEmulation.CATEGORY_OTHER,
-            listOf(AidGroup(AID, "NovaBeam tap"))
+            listOf(AID_HEX)
         )
         adapter.enableReaderMode(
             activity,
@@ -99,8 +99,11 @@ class NfcBeamPlugin(private val activity: Activity) :
     private fun stopReaderMode() {
         val adapter = nfcAdapter ?: return
         try {
-            CardEmulation.getInstance(adapter)
-                .unregisterAidsForService(ComponentName(activity, BeamHceService::class.java))
+            CardEmulation.getInstance(adapter).removeAidsForService(
+                ComponentName(activity, BeamHceService::class.java),
+                CardEmulation.CATEGORY_OTHER,
+                listOf(AID_HEX)
+            )
         } catch (_: Exception) {
             // Service may already be unregistered; ignore.
         }
