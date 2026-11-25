@@ -37,6 +37,6 @@ flutter {
 }
 
 dependencies {
-    implementation "com.google.android.gms:play-services-nearby:18.8.0"
+    implementation "com.google.android.gms:play-services-nearby:19.3.0"
     implementation "androidx.core:core:1.13.1"
 }
