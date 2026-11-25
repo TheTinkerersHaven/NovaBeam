@@ -31,12 +31,15 @@ jobs:
 
       - run: flutter pub get
 
-      - uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: 8.10.2
-
-      - name: Generate gradle wrapper jar (not committed)
-        run: cd android && gradle wrapper --gradle-version 8.10.2
+      - name: Install gradle wrapper (jar is not committed)
+        run: |
+          cd android
+          BASE="https://raw.githubusercontent.com/gradle/gradle/v8.10.2"
+          curl -fsSL --retry 5 --retry-all-errors -o gradlew "$BASE/gradlew"
+          curl -fsSL --retry 5 --retry-all-errors -o gradlew.bat "$BASE/gradlew.bat"
+          mkdir -p gradle/wrapper
+          curl -fsSL --retry 5 --retry-all-errors -o gradle/wrapper/gradle-wrapper.jar "$BASE/gradle/wrapper/gradle-wrapper.jar"
+          chmod +x gradlew
 
       - run: flutter analyze
       - run: flutter test
