@@ -29,6 +29,8 @@ jobs:
           yes | "$SM" --licenses
           "$SM" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
 
+      - run: flutter pub get
+
       - uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: 8.10.2
@@ -36,7 +38,6 @@ jobs:
       - name: Generate gradle wrapper jar (not committed)
         run: cd android && gradle wrapper --gradle-version 8.10.2
 
-      - run: flutter pub get
       - run: flutter analyze
       - run: flutter test
       - run: flutter build apk --debug
