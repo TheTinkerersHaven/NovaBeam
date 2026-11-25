@@ -101,8 +101,7 @@ class NfcBeamPlugin(private val activity: Activity) :
         try {
             CardEmulation.getInstance(adapter).removeAidsForService(
                 ComponentName(activity, BeamHceService::class.java),
-                CardEmulation.CATEGORY_OTHER,
-                listOf(AID_HEX)
+                CardEmulation.CATEGORY_OTHER
             )
         } catch (_: Exception) {
             // Service may already be unregistered; ignore.
