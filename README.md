@@ -59,10 +59,18 @@ android/app/src/main/kotlin/com/tinkerershaven/novabeam/
   BeamTransferService.kt        dataSync foreground service (Android 14+)
 ```
 
-## Build & run
+## Download a prebuilt APK
 
-Requirements: Flutter SDK (Dart >= 3.5), Android SDK with compileSdk 35, two
-Android phones with NFC and Google Play services.
+CI builds debug + release APKs on every push to `main` and publishes them to
+the [apk-latest release](https://github.com/TheTinkerersHaven/NovaBeam/releases/tag/apk-latest)
+(also available as the `novabeam-apks` artifact on each
+[build-apk workflow run](https://github.com/TheTinkerersHaven/NovaBeam/actions/workflows/build-apk.yml)).
+Both APKs are debug-signed, so they install directly on any Android 7+ device.
+
+## Build & run from source
+
+Requirements: Flutter SDK (Dart >= 3.5, e.g. 3.32.x), Android SDK with
+compileSdk 35, two Android phones with NFC and Google Play services.
 
 ```bash
 flutter pub get
