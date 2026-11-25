@@ -14,10 +14,10 @@ minimal, open reimplementation of that idea in Flutter.
  Phone A (has file)                         Phone B (receiver)
  ─────────────────                          ─────────────────
  "Start beaming"                            "Start beaming"
-   ├─ NFC: arm NDEF push (handshake)         ├─ NFC: arm NDEF push (handshake)
+   ├─ NFC: reader mode + HCE handshake        ├─ NFC: reader mode + HCE handshake
    └─ Nearby: advertise + discover           └─ Nearby: advertise + discover
                     │ tap backs together │
-   NFC push ───────────────────────────────▶  NDEF read (handshake A)
+   NFC tap (IsoDep SELECT-by-AID) ──────────▶  HCE service answers (handshake A)
                                               └─ requestConnection(endpoint A)
    ◀───────────────────────────── connection initiated → acceptConnection
    ◀──── control: {auth, token from NFC} ──── (receiver echoes NFC token)
@@ -26,9 +26,12 @@ minimal, open reimplementation of that idea in Flutter.
    ◀──── control: {ack} ────────────────────
 ```
 
-- **NFC** (~424 kbps) carries only a small bootstrap record
-  (`application/x-novabeam` NDEF MIME payload, JSON):
+- **NFC** (~424 kbps) carries only a small bootstrap record (JSON):
   `{v, endpoint, token, name, hasFile}` — see `lib/src/handshake.dart`.
+  Android 16 removed the old NDEF-push "Beam" APIs, so the tap is implemented
+  with host card emulation: each phone runs NFC reader mode (IsoDep) and sends
+  a SELECT-by-AID APDU to the tapped phone, whose `BeamHceService` answers with
+  its handshake + SW 9000. Both phones exchange handshakes on one tap.
   NFC is plaintext and unauthenticated, so nothing sensitive goes here and
   every field is strictly validated on parse.
 - **Nearby Connections** (`ConnectionsClient`, `P2P_POINT_TO_POINT`) carries
@@ -52,8 +55,9 @@ lib/
   src/home_page.dart            UI
 test/                           unit tests for the pure-Dart codecs
 android/app/src/main/kotlin/com/tinkerershaven/novabeam/
-  MainActivity.kt               registers plugins, forwards NFC dispatch intents
-  NfcBeamPlugin.kt              foreground NDEF dispatch + NDEF push callback
+  MainActivity.kt               registers plugins
+  NfcBeamPlugin.kt              NFC reader mode; SELECT-by-AID handshake read
+  BeamHceService.kt             host card emulation answering the tap with the handshake
   NearbyBeamPlugin.kt           ConnectionsClient wrapper (advertise/discover/
                                 connect/payloads, sha256 verify on receive)
   BeamTransferService.kt        dataSync foreground service (Android 14+)
@@ -98,8 +102,8 @@ to keep transfers alive on Android 14+.
 
 ## Security notes / limitations (MVP)
 
-- The NFC handshake is authenticated by echoing the random per-session token
-  over the encrypted Nearby link before any file is sent. Connections are
+- The NFC handshake is plaintext, so it is authenticated by echoing the random
+  per-session token over the encrypted Nearby link before any file is sent. Connections are
   auto-accepted — production should surface
   `ConnectionInfo.authenticationDigits` on both screens for user verification.
 - The file is read into memory in Dart for hashing (`file_picker` bytes);

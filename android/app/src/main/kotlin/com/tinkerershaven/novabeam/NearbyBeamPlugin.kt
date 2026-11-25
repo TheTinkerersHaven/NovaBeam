@@ -88,7 +88,7 @@ class NearbyBeamPlugin(private val activity: Activity) : MethodChannel.MethodCal
                     client()!!.startAdvertising(
                         localName,
                         serviceId,
-                        discoveryCallback,
+                        connectionCallback,
                         AdvertisingOptions.Builder().setStrategy(Strategy.P2P_POINT_TO_POINT).build()
                     )
                     result.success(null)
@@ -251,7 +251,7 @@ class NearbyBeamPlugin(private val activity: Activity) : MethodChannel.MethodCal
                     }
                 }
                 Payload.Type.STREAM, Payload.Type.FILE -> {
-                    val stream = payload.asStream() ?: return
+                    val stream = payload.asStream()?.asInputStream() ?: return
                     handleIncomingStream(endpointId, payload.id, stream)
                 }
             }

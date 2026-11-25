@@ -1,41 +1,44 @@
 package com.tinkerershaven.novabeam
 
 import android.app.Activity
-import android.app.PendingIntent
-import android.content.Intent
-import android.content.IntentFilter
-import android.nfc.NdefMessage
-import android.nfc.NdefRecord
 import android.nfc.NfcAdapter
-import android.nfc.tech.Ndef
-import android.os.Build
-import android.os.Parcelable
+import android.nfc.Tag
+import android.nfc.tech.IsoDep
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 
-/// NFC beam engine: the Android Beam successor pattern.
+/// NFC beam engine for phone-to-phone taps.
 ///
-/// While armed, the activity runs foreground NDEF dispatch and registers an
-/// NDEF push callback, so tapping two phones running the app delivers this
-/// device's payload to the other phone's dispatch intent. Incoming NDEF
-/// MIME records (`application/x-novabeam`) are forwarded to Flutter as events.
-class NfcBeamPlugin(private val activity: Activity) : MethodChannel.MethodCallHandler {
+/// Android 16 removed the NDEF push APIs (the old Android Beam mechanism), so
+/// this uses the modern replacement: while armed, the app runs NFC reader mode
+/// (IsoDep) and sends a SELECT-by-AID APDU to whatever phone is tapped; the
+/// peer's [BeamHceService] (host card emulation on the same custom AID)
+/// answers with its handshake payload + SW 9000. Both phones do this on tap,
+/// so each receives the other's handshake.
+class NfcBeamPlugin(private val activity: Activity) :
+    MethodChannel.MethodCallHandler, NfcAdapter.ReaderCallback {
 
     private var eventSink: EventChannel.EventSink? = null
-    private var pendingPayload: ByteArray? = null
     private val nfcAdapter: NfcAdapter? = NfcAdapter.getDefaultAdapter(activity)
 
     companion object {
         private const val METHOD_CHANNEL = "dev.tinkerershaven.novabeam/nfc"
         private const val EVENT_CHANNEL = "dev.tinkerershaven.novabeam/nfc_events"
-        const val MIME_TYPE = "application/x-novabeam"
-        private var instance: NfcBeamPlugin? = null
+
+        // Custom AID: 0xF0 + ASCII "NovaBeam" (registered in res/xml/apduservice.xml)
+        val AID: ByteArray = byteArrayOf(
+            0xF0.toByte(), 0x4E, 0x6F, 0x76, 0x61, 0x42, 0x65, 0x61, 0x6D
+        )
+
+        @Volatile
+        private var pendingPayload: ByteArray? = null
+
+        fun currentPayload(): ByteArray? = pendingPayload
 
         fun registerWith(engine: FlutterEngine, activity: Activity) {
             val plugin = NfcBeamPlugin(activity)
-            instance = plugin
             MethodChannel(engine.dartExecutor.binaryMessenger, METHOD_CHANNEL)
                 .setMethodCallHandler(plugin)
             EventChannel(engine.dartExecutor.binaryMessenger, EVENT_CHANNEL)
@@ -49,10 +52,6 @@ class NfcBeamPlugin(private val activity: Activity) : MethodChannel.MethodCallHa
                     }
                 })
         }
-
-        fun handleIntent(intent: Intent) {
-            instance?.onNfcIntent(intent)
-        }
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
@@ -65,61 +64,63 @@ class NfcBeamPlugin(private val activity: Activity) : MethodChannel.MethodCallHa
                     return
                 }
                 pendingPayload = payload.toByteArray(Charsets.UTF_8)
-                startDispatch()
+                startReaderMode()
                 result.success(null)
             }
             "stopBeam" -> {
-                stopDispatch()
+                stopReaderMode()
+                pendingPayload = null
                 result.success(null)
             }
             else -> result.notImplemented()
         }
     }
 
-    private fun startDispatch() {
+    private fun startReaderMode() {
         val adapter = nfcAdapter ?: return
-        val intent = Intent(activity, activity.javaClass).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
-        val flags = PendingIntent.FLAG_UPDATE_CURRENT or
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
-        val pendingIntent = PendingIntent.getActivity(activity, 0, intent, flags)
-        val filters = arrayOf(IntentFilter(NfcAdapter.ACTION_NDEF_DISCOVERED))
-        val techLists = arrayOf(arrayOf(Ndef::class.java.name))
-        adapter.enableForegroundDispatch(activity, pendingIntent, filters, techLists)
-        adapter.setNdefPushMessageCallback({ createPushMessage() }, activity)
+        adapter.enableReaderMode(
+            activity,
+            this,
+            NfcAdapter.FLAG_READER_NFC_A or
+                NfcAdapter.FLAG_READER_NFC_B or
+                NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK,
+            null
+        )
     }
 
-    private fun stopDispatch() {
-        val adapter = nfcAdapter ?: return
-        adapter.setNdefPushMessageCallback(null, activity)
-        adapter.disableForegroundDispatch(activity)
-        pendingPayload = null
+    private fun stopReaderMode() {
+        nfcAdapter?.disableReaderMode(activity)
     }
 
-    private fun createPushMessage(): NdefMessage {
-        val payload = pendingPayload ?: ByteArray(0)
-        val record = NdefRecord.createMime(MIME_TYPE, payload)
-        return NdefMessage(arrayOf(record))
-    }
-
-    private fun onNfcIntent(intent: Intent) {
-        val messages: Array<out Parcelable>? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            intent.getParcelableArrayExtra(NfcAdapter.EXTRA_NDEF_MESSAGES, NdefMessage::class.java)
-                ?.mapNotNull { it as? NdefMessage }?.toTypedArray()
-        } else {
-            @Suppress("DEPRECATION")
-            intent.getParcelableArrayExtra(NfcAdapter.EXTRA_NDEF_MESSAGES)
-        }
-        val message = messages?.firstOrNull() ?: return
-        for (record in message.records) {
-            if (record.tnf == NdefRecord.TNF_MIME_MEDIA &&
-                String(record.type, Charsets.ISO_8859_1) == MIME_TYPE
+    override fun onTagDiscovered(tag: Tag) {
+        val isoDep = IsoDep.get(tag) ?: return
+        try {
+            isoDep.connect()
+            isoDep.timeout = 5000
+            val select = ByteArray(6 + AID.size)
+            select[0] = 0x00
+            select[1] = 0xA4.toByte()
+            select[2] = 0x04
+            select[3] = 0x00
+            select[4] = AID.size.toByte()
+            System.arraycopy(AID, 0, select, 5, AID.size)
+            select[5 + AID.size] = 0x00
+            val resp = isoDep.transceive(select) ?: return
+            if (resp.size >= 2 &&
+                resp[resp.size - 2] == 0x90.toByte() &&
+                resp[resp.size - 1] == 0x00.toByte()
             ) {
+                val payload = resp.copyOf(resp.size - 2)
                 eventSink?.success(
-                    mapOf(
-                        "type" to "ndef",
-                        "payload" to String(record.payload, Charsets.UTF_8)
-                    )
+                    mapOf("type" to "ndef", "payload" to String(payload, Charsets.UTF_8))
                 )
+            }
+        } catch (_: Exception) {
+            // Peer went away mid-exchange; ignore.
+        } finally {
+            try {
+                isoDep.close()
+            } catch (_: Exception) {
             }
         }
     }
