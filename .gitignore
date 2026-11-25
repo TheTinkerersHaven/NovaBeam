@@ -1,0 +1,19 @@
+# Dart / Flutter
+.dart_tool/
+.flutter-ide/
+.build/
+packages
+pubspec.lock
+
+# Android / Gradle
+android/.gradle/
+android/app/build/
+android/local.properties
+local.properties
+build/
+
+# IDE
+*.iml
+.idea/
+.vscode/
+.DS_Store
