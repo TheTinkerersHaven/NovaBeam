@@ -1,8 +1,11 @@
 package com.tinkerershaven.novabeam
 
 import android.app.Activity
+import android.content.ComponentName
 import android.nfc.NfcAdapter
 import android.nfc.Tag
+import android.nfc.cardemulation.AidGroup
+import android.nfc.cardemulation.CardEmulation
 import android.nfc.tech.IsoDep
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -78,6 +81,11 @@ class NfcBeamPlugin(private val activity: Activity) :
 
     private fun startReaderMode() {
         val adapter = nfcAdapter ?: return
+        CardEmulation.getInstance(adapter).registerAidsForService(
+            ComponentName(activity, BeamHceService::class.java),
+            CardEmulation.CATEGORY_OTHER,
+            listOf(AidGroup(AID, "NovaBeam tap"))
+        )
         adapter.enableReaderMode(
             activity,
             this,
@@ -89,7 +97,14 @@ class NfcBeamPlugin(private val activity: Activity) :
     }
 
     private fun stopReaderMode() {
-        nfcAdapter?.disableReaderMode(activity)
+        val adapter = nfcAdapter ?: return
+        try {
+            CardEmulation.getInstance(adapter)
+                .unregisterAidsForService(ComponentName(activity, BeamHceService::class.java))
+        } catch (_: Exception) {
+            // Service may already be unregistered; ignore.
+        }
+        adapter.disableReaderMode(activity)
     }
 
     override fun onTagDiscovered(tag: Tag) {
