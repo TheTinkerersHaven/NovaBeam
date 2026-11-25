@@ -2,5 +2,7 @@
 <host-apdu-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/apduservice_description"
     android:requireDeviceUnlock="false">
-    <aid-group android:category="other" android:aid="F04E6F76614265616D" />
+    <aid-group android:category="other" android:description="@string/apduservice_description">
+        <aid android:aid="F04E6F76614265616D" />
+    </aid-group>
 </host-apdu-service>
